@@ -5,6 +5,7 @@ import glob
 import pyarrow
 from pyarrow import parquet
 from pyarrow import flight
+import pyarrow.compute as pc
 
 
 # Helper Functions.
@@ -19,7 +20,7 @@ def create_time_series_table(flight_client, table_name, schema, error_bound):
     # as spaces and punctuation.
     columns = []
     for field in schema:
-        if field.type == pyarrow.timestamp("ms"):
+        if field.type == pyarrow.timestamp("us"):
             columns.append(f"`{field.name}` TIMESTAMP")
         elif field.type == pyarrow.float32():
             columns.append(f"`{field.name}` FIELD({error_bound}%)")
@@ -42,28 +43,29 @@ def read_parquet_file_or_folder(path):
 
     # Ensure the schema only uses supported types.
     columns = []
-    column_names = []
-    for field in arrow_table.schema:
-        column_names.append(field.name)
+    fields = []
 
-        if field.type == pyarrow.float16() or field.type == pyarrow.float64():
+    for field in arrow_table.schema:
+        col = arrow_table[field.name]
+
+        if field.type in [pyarrow.float16(), pyarrow.float64()]:
             # Ensure fields are float32 as others are not supported.
-            columns.append((field.name, pyarrow.float32()))
+            col = pc.cast(col, pyarrow.float32())
+            fields.append(pyarrow.field(field.name, pyarrow.float32()))
         elif field.type in [
             pyarrow.timestamp("s"),
-            pyarrow.timestamp("us"),
+            pyarrow.timestamp("ms"),
             pyarrow.timestamp("ns"),
         ]:
-            # Ensure timestamps are timestamp[ms] as others are not supported.
-            columns.append((field.name, pyarrow.timestamp("ms")))
+            # Ensure timestamps are timestamp[us] as others are not supported.
+            col = pc.cast(col, pyarrow.timestamp("us"))
+            fields.append(pyarrow.field(field.name, pyarrow.timestamp("us")))
         else:
-            columns.append((field.name, field.type))
+            fields.append(field)
 
-    safe_schema = pyarrow.schema(columns)
-
-    # Cast the columns to the supported types.
-    arrow_table = arrow_table.rename_columns(column_names)
-    return arrow_table.cast(safe_schema)
+        columns.append(col)
+    # Create a new table with the supported types.
+    return pyarrow.Table.from_arrays(columns, schema=pyarrow.schema(fields))
 
 
 def do_put_arrow_table(flight_client, table_name, arrow_table):
