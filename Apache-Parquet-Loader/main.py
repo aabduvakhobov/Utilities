@@ -5,7 +5,7 @@ import glob
 import pyarrow
 from pyarrow import parquet
 from pyarrow import flight
-import pyarrow.compute as compute
+from pyarrow import compute
 
 
 # Helper Functions.
