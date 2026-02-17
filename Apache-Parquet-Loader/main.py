@@ -5,7 +5,7 @@ import glob
 import pyarrow
 from pyarrow import parquet
 from pyarrow import flight
-import pyarrow.compute as pc
+import pyarrow.compute as compute
 
 
 # Helper Functions.
@@ -42,15 +42,15 @@ def read_parquet_file_or_folder(path):
     arrow_table = parquet.read_table(path)
 
     # Ensure the schema only uses supported types.
-    columns = []
+    arrays = []
     fields = []
 
     for field in arrow_table.schema:
-        col = arrow_table[field.name]
+        column = arrow_table[field.name]
 
         if field.type in [pyarrow.float16(), pyarrow.float64()]:
             # Ensure fields are float32 as others are not supported.
-            col = pc.cast(col, pyarrow.float32())
+            column = compute.cast(column, pyarrow.float32())
             fields.append(pyarrow.field(field.name, pyarrow.float32()))
         elif field.type in [
             pyarrow.timestamp("s"),
@@ -58,14 +58,15 @@ def read_parquet_file_or_folder(path):
             pyarrow.timestamp("ns"),
         ]:
             # Ensure timestamps are timestamp[us] as others are not supported.
-            col = pc.cast(col, pyarrow.timestamp("us"))
+            column = compute.cast(column, pyarrow.timestamp("us"))
             fields.append(pyarrow.field(field.name, pyarrow.timestamp("us")))
         else:
             fields.append(field)
 
-        columns.append(col)
+        arrays.append(column)
+
     # Create a new table with the supported types.
-    return pyarrow.Table.from_arrays(columns, schema=pyarrow.schema(fields))
+    return pyarrow.Table.from_arrays(arrays, schema=pyarrow.schema(fields))
 
 
 def do_put_arrow_table(flight_client, table_name, arrow_table):
